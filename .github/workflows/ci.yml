@@ -14,11 +14,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-20.04, macos-latest]
     name: Build Server (${{matrix.os}})
     runs-on: ${{matrix.os}}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           submodules: true
@@ -36,13 +36,13 @@ jobs:
         include:
           - os: windows-latest
             test-path: ./build/Debug/Luau.LanguageServer.Test
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             test-path: ./build/Luau.LanguageServer.Test
 
     name: Run Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           submodules: true
@@ -58,9 +58,9 @@ jobs:
 
   types_smoketest:
     name: Types Smoketest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           submodules: true
@@ -70,6 +70,11 @@ jobs:
           mkdir build && cd build
           cmake ..
           cmake --build . --target Luau.LanguageServer.CLI -j 3
+
+      - name: Regenerate Types
+        run: |
+          cd scripts
+          python dumpRobloxTypes.py > globalTypes.d.luau
 
       - name: Test types
         run: |
@@ -85,11 +90,11 @@ jobs:
     name: Lint Extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 16.x
+          node-version: 20
       - name: Install dependencies
         run: npm ci
         working-directory: editors/code
@@ -104,16 +109,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-20.04, windows-latest]
     name: Test Extension (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 16.x
+          node-version: 20
       - run: npm install
         working-directory: editors/code
       - run: xvfb-run -a npm test
@@ -127,7 +132,7 @@ jobs:
     name: Verify and Build Roblox Studio Plugin
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
 

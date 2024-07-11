@@ -42,17 +42,17 @@ static lsp::SemanticTokenTypes inferTokenType(const Luau::TypeId ty, lsp::Semant
 
     if (auto ftv = Luau::get<Luau::FunctionType>(followedTy))
     {
-        if (ftv->hasSelf)
+        if (isMethod(ftv))
             return lsp::SemanticTokenTypes::Method;
         else
             return lsp::SemanticTokenTypes::Function;
     }
     else if (Luau::get<Luau::IntersectionType>(followedTy))
     {
-        if (Luau::isOverloadedFunction(followedTy))
-        {
+        if (isOverloadedMethod(followedTy))
+            return lsp::SemanticTokenTypes::Method;
+        else if (Luau::isOverloadedFunction(followedTy))
             return lsp::SemanticTokenTypes::Function;
-        }
     }
     else if (auto ttv = Luau::get<Luau::TableType>(followedTy))
     {

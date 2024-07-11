@@ -8,9 +8,9 @@ import json
 import sys
 
 # API Endpoints
-DATA_TYPES_URL = "https://raw.githubusercontent.com/NightrainsRbx/RobloxLsp/master/server/api/DataTypes.json"
+DATA_TYPES = open("DataTypes.json", "r")
+CORRECTIONS = open("Corrections.json", "r")
 API_DUMP_URL = "https://raw.githubusercontent.com/CloneTrooper1019/Roblox-Client-Tracker/roblox/API-Dump.json"
-CORRECTIONS_URL = "https://raw.githubusercontent.com/NightrainsRbx/RobloxLsp/master/server/api/Corrections.json"
 BRICK_COLORS_URL = "https://gist.githubusercontent.com/Anaminus/49ac255a68e7a7bc3cdd72b602d5071f/raw/f1534dcae312dbfda716b7677f8ac338b565afc3/BrickColor.json"
 
 INCLUDE_DEPRECATED_METHODS = False
@@ -253,6 +253,9 @@ IGNORED_MEMBERS = {
     "Vector3": [
         "Angle",
     ],
+    "ControllerPartSensor": [
+        "SensedPart",
+    ],
 }
 
 # Extra members to add in to classes, commonly used to add in metamethods, and add corrections
@@ -271,6 +274,7 @@ EXTRA_MEMBERS = {
         "function __sub(self, other: Vector2): Vector2",
         "function __mul(self, other: Vector2 | number): Vector2",
         "function __div(self, other: Vector2 | number): Vector2",
+        "function __idiv(self, other: Vector2 | number): Vector2",
         "function __unm(self): Vector2",
     ],
     "Vector3int16": [
@@ -302,6 +306,9 @@ EXTRA_MEMBERS = {
         "function __sub(self, other: Vector3): CFrame",
         "function __mul(self, other: CFrame): CFrame",
         "function __mul(self, other: Vector3): Vector3",
+    ],
+    "Random": [
+        "function Shuffle(self, table: { any })",
     ],
     "UserSettings": [
         "GameSettings: UserGameSettings",
@@ -370,6 +377,9 @@ EXTRA_MEMBERS = {
     ],
     "WorldRoot": [
         "function Raycast(self, origin: Vector3, direction: Vector3, raycastParams: RaycastParams?): RaycastResult?",
+        "function Blockcast(self, cframe: CFrame, size: Vector3, direction: Vector3, params: RaycastParams?): RaycastResult?",
+        "function Shapecast(self, part: BasePart, direction: Vector3, params: RaycastParams?): RaycastResult?",
+        "function Spherecast(self, position: Vector3, radius: number, direction: Vector3, params: RaycastParams?): RaycastResult?",
         "function ArePartsTouchingOthers(self, partList: { BasePart }, overlapIgnored: number?): boolean",
         "function BulkMoveTo(self, partList: { BasePart }, cframeList: { CFrame }, eventMode: EnumBulkMoveMode?): nil",
         "function GetPartBoundsInBox(self, cframe: CFrame, size: Vector3, overlapParams: OverlapParams?): { BasePart }",
@@ -454,7 +464,7 @@ EXTRA_MEMBERS = {
     "GuiService": ["SelectedObject: GuiObject?"],
     "GlobalDataStore": [
         # GetAsync we received from upstream didn't have a second return value of DataStoreKeyInfo
-        "function GetAsync(self, key: string): (any, DataStoreKeyInfo)",
+        "function GetAsync(self, key: string, options: DataStoreGetOptions?): (any, DataStoreKeyInfo)",
         # IncrementAsync didn't have a second return value of DataStoreKeyInfo, and the first return value is always a number
         "function IncrementAsync(self, key: string, delta: number?, userIds: { number }?, options: DataStoreIncrementOptions?): (number, DataStoreKeyInfo)",
         # RemoveAsync didn't have a second return value of DataStoreKeyInfo
@@ -469,7 +479,7 @@ EXTRA_MEMBERS = {
     # Trying to set the value in a OrderedDataStore to anything other than a number will error,
     # So we override the method's types to use numbers instead of any
     "OrderedDataStore": [
-        "function GetAsync(self, key: string): (number?, DataStoreKeyInfo)",
+        "function GetAsync(self, key: string, options: DataStoreGetOptions?): (number?, DataStoreKeyInfo)",
         "function GetSortedAsync(self, ascending: boolean, pageSize: number, minValue: number?, maxValue: number?): DataStorePages",
         "function RemoveAsync(self, key: string): (number?, DataStoreKeyInfo)",
         "function SetAsync(self, key: string, value: number, userIds: { number }?, options: DataStoreSetOptions?): string",
@@ -511,6 +521,9 @@ EXTRA_MEMBERS = {
         "Attachment0: Attachment?",
         "Attachment1: Attachment?",
     ],
+    "ControllerPartSensor": [
+        "SensedPart: BasePart?",
+    ],
 }
 
 # Hardcoded types
@@ -524,6 +537,7 @@ type QFont = string
 type FloatCurveKey = any
 type RotationCurveKey = any
 type Secret = any
+type Path2DControlPoint = any
 
 declare class Enum
     function GetEnumItems(self): { any }
@@ -541,6 +555,7 @@ declare debug: {
     traceback: ((string?, number?) -> string) & ((thread, string?, number?) -> string),
     profilebegin: (label: string) -> (),
     profileend: () -> (),
+    getmemorycategory: () -> string,
     setmemorycategory: (tag: string) -> (),
     resetmemorycategory: () -> (),
 }
@@ -601,6 +616,7 @@ type HttpRequestOptions = {
     Method: "GET" | "HEAD" | "POST" | "PUT" | "DELETE" | "CONNECT" | "OPTIONS" | "TRACE" | "PATCH" | nil,
     Headers: { [string]: string }?,
     Body: string?,
+    Compress: EnumHttpCompression
 }
 
 type HttpResponseData = {
@@ -637,7 +653,7 @@ end
 
 declare SharedTable: {
     new: () -> SharedTable,
-    new: (t: { [any]: any }) -> SharedTable,
+    new: (t: { [any]: any }?) -> SharedTable,
     clear: (st: SharedTable) -> (),
     clone: (st: SharedTable, deep: boolean?) -> SharedTable,
     cloneAndFreeze: (st: SharedTable, deep: boolean?) -> SharedTable,
@@ -869,6 +885,9 @@ def resolveType(type: Union[ApiValueType, CorrectionsValueType]) -> str:
     if "Tuple" in type and type["Tuple"] is not None:
         subtype = resolveType(type["Tuple"])
         return f"...({subtype})"
+    if "Variadic" in type and type["Variadic"] is not None:
+        subtype = resolveType(type["Variadic"])
+        return f"...{subtype}"
 
     name, category = (
         type["Name"],
@@ -890,6 +909,9 @@ def resolveParameter(param: ApiParameter):
     isVariadic = paramType.startswith("...")
     if isVariadic:
         actualType = paramType[3:]
+        if "Variadic" in param["Type"] and param["Type"]["Variadic"] is not None:
+            return f"...{actualType}"
+
         return f"...: {actualType}"
     return f"{escapeName(param['Name'])}: {paramType}{'?' if 'Default' in param and not isOptional else ''}"
 
@@ -1139,9 +1161,9 @@ def applyCorrections(dump: ApiDump, corrections: CorrectionsDump):
                                                     else otherParam["Type"]["Name"]
                                                 )
                                                 if "Generic" in param["Type"]:
-                                                    otherParam["Type"][
-                                                        "Generic"
-                                                    ] = param["Type"]["Generic"]
+                                                    otherParam["Type"]["Generic"] = (
+                                                        param["Type"]["Generic"]
+                                                    )
                                             if "Default" in param:
                                                 otherParam["Default"] = param["Default"]
 
@@ -1188,14 +1210,14 @@ brickColors = json.loads(requests.get(BRICK_COLORS_URL).text)
 processBrickColors(brickColors)
 
 # Print global types
-dataTypes: DataTypesDump = json.loads(requests.get(DATA_TYPES_URL).text)
+dataTypes: DataTypesDump = json.load(DATA_TYPES)
 dump: ApiDump = json.loads(requests.get(API_DUMP_URL).text)
 
 # Load services and creatable instances
 loadClassesIntoStructures(dump)
 
 # Apply any corrections on the dump
-corrections: CorrectionsDump = json.loads(requests.get(CORRECTIONS_URL).text)
+corrections: CorrectionsDump = json.load(CORRECTIONS)
 applyCorrections(dump, corrections)
 
 printJsonPrologue()

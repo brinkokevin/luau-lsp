@@ -33,13 +33,19 @@ static std::pair<std::string, lsp::Position> sourceWithMarker(std::string source
     return std::make_pair(source, lsp::Position{line, column});
 }
 
-lsp::CompletionItem getItem(const std::vector<lsp::CompletionItem>& items, const std::string& label)
+std::optional<lsp::CompletionItem> getItem(const std::vector<lsp::CompletionItem>& items, const std::string& label)
 {
     for (const auto& item : items)
         if (item.label == label)
             return item;
-    REQUIRE_MESSAGE(false, "no item found");
-    return {};
+    return std::nullopt;
+}
+
+lsp::CompletionItem requireItem(const std::vector<lsp::CompletionItem>& items, const std::string& label)
+{
+    auto item = getItem(items, label);
+    REQUIRE_MESSAGE(item.has_value(), "no item found");
+    return item.value();
 }
 
 TEST_SUITE_BEGIN("Autocomplete");
@@ -61,7 +67,7 @@ TEST_CASE_FIXTURE(Fixture, "function_autocomplete_has_documentation")
     params.position = marker;
 
     auto result = workspace.completion(params);
-    auto item = getItem(result, "foo");
+    auto item = requireItem(result, "foo");
 
     REQUIRE(item.documentation);
     CHECK_EQ(item.documentation->kind, lsp::MarkupKind::Markdown);
@@ -86,8 +92,109 @@ TEST_CASE_FIXTURE(Fixture, "deprecated_marker_in_documentation_comment_applies_t
     params.position = marker;
 
     auto result = workspace.completion(params);
-    auto item = getItem(result, "foo");
+    auto item = requireItem(result, "foo");
     CHECK(item.deprecated);
+}
+
+TEST_CASE_FIXTURE(Fixture, "configure_properties_shown_when_autocompleting_index_with_colon")
+{
+    auto [source, marker] = sourceWithMarker(R"(
+        local Foo = {}
+        Foo.Value = 5
+
+        function Foo:Bar()
+        end
+
+        local _ = Foo:|
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::CompletionParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    client->globalConfig.completion.showPropertiesOnMethodCall = true;
+    auto result = workspace.completion(params);
+    CHECK(getItem(result, "Bar"));
+    CHECK(getItem(result, "Value"));
+
+    client->globalConfig.completion.showPropertiesOnMethodCall = false;
+    result = workspace.completion(params);
+    CHECK(getItem(result, "Bar"));
+    CHECK_FALSE(getItem(result, "Value"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "variable_with_a_class_type_should_not_have_class_entry_kind_1")
+{
+    auto [source, marker] = sourceWithMarker(R"(
+        --!strict
+        local player: Instance = nil
+        local x = p|
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::CompletionParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.completion(params);
+    auto item = requireItem(result, "player");
+    CHECK_EQ(item.kind, lsp::CompletionItemKind::Variable);
+}
+
+TEST_CASE_FIXTURE(Fixture, "variable_with_a_class_type_should_not_have_class_entry_kind_2")
+{
+    auto [source, marker] = sourceWithMarker(R"(
+        --!strict
+        local function foo(player: Instance)
+            local x = p|
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::CompletionParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.completion(params);
+    auto item = requireItem(result, "player");
+    CHECK_EQ(item.kind, lsp::CompletionItemKind::Variable);
+}
+
+TEST_CASE_FIXTURE(Fixture, "string_completion_after_slash_should_replace_whole_string")
+{
+    auto [source, marker] = sourceWithMarker(R"(
+        --!strict
+        local tbl = {
+            ["Item/Foo"] = 1,
+            ["Item/Bar"] = 2,
+            ["Item/Baz"] = 3,
+        }
+
+        tbl["Item/|"]
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::CompletionParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.completion(params);
+
+    std::vector<std::string> labels{"Item/Foo", "Item/Bar", "Item/Baz"};
+    for (const auto& label : labels)
+    {
+        auto item = requireItem(result, label);
+        CHECK_EQ(item.kind, lsp::CompletionItemKind::Field);
+        REQUIRE(item.textEdit);
+        CHECK_EQ(item.textEdit->range.start, lsp::Position{8, 13});
+        CHECK_EQ(item.textEdit->range.end, lsp::Position{8, 18});
+        CHECK_EQ(item.textEdit->newText, label);
+    }
 }
 
 TEST_SUITE_END();
